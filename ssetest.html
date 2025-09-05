@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE TrainAnnouncement Reader</title>
+</head>
+<body>
+<script>
+    const eventSource = new EventSource('https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=2ddcc72e-3bf7-4f62-8e6c-8bf69bff84a1'); // Replace with your SSE endpoint
+    eventSource.onmessage = function(event) {
+        try {
+        const data = JSON.parse(event.data).RESPONSE.RESULT[0];
+            if (Array.isArray(data.TrainAnnouncement) && data.TrainAnnouncement.length > 0) {
+                data.TrainAnnouncement.forEach(announcement => {
+                    console.log(announcement.TrainOwner);
+                });
+            }
+        } catch (e) {   
+            console.error('Invalid SSE data:', event.data);
+        }
+    };
+
+    eventSource.onerror = function() {
+        console.error('SSE connection error');
+    };
+</script>
+</body>
+</html>

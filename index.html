@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Train Positions – Lund</title>
+  <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+  <style>
+
+    body, html { margin:0; padding:0; height:100%;background-color: rgb(26, 26, 26); }
+    #map { width:100%; height:100%; }
+
+    .maplibregl-popup-content {
+      overflow-x: auto;
+      font-size: 13px;
+    }
+    .maplibregl-ctrl-bottom-right {
+      display: none; /* Hide the MapLibre logo */
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // Center on Lund, Sweden
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: './alidade_smooth.json', // Replace with your style URL or JSON
+      center: [13.191, 55.704], // lon, lat for Lund
+      projection: {"type": "globe"},
+      zoom: 11
+    });
+
+    // Source + layer for train positions
+    map.on('load', () => {
+      // Train source and layers
+      map.addSource('trains', {
+        type: 'geojson',
+        data: { type:'FeatureCollection', features: [] }
+      });
+
+      map.addLayer({
+        id: 'train-points',
+        type: 'circle',
+        source: 'trains',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': ['get', 'color'],
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fff'
+        }
+      });
+
+      // Arrow icon and layer
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><polygon points="32,0 64,56 32,30 0,56" fill="white"/></svg>`;
+      const img = new Image();
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      img.onload = () => {
+        map.addImage('train-arrow', img, { sdf: false });
+        map.addLayer({
+          id: 'train-arrows',
+          type: 'symbol',
+          source: 'trains',
+          layout: {
+            'icon-image': 'train-arrow',
+            'icon-size': 0.2,
+            'icon-rotate': ['get', 'bearing'],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-offset': [0, -25]
+          },
+          paint: {
+            'icon-opacity': 1
+          }
+        });
+      };
+
+      // Camera source and layer
+      map.addSource('cameras', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+
+      // Add camera icon
+      (async function addCameraIcon() {
+        const response = await fetch('https://api.trafikinfo.trafikverket.se/v2/icons/data/road.infrastructure.icon/trafficCamera');
+        const blob = await response.blob();
+        const img = new Image();
+        img.src = URL.createObjectURL(blob);
+        await img.decode();
+        map.addImage('camera-icon', img, { sdf: false });
+
+        map.addLayer({
+          id: 'camera-points',
+          type: 'symbol',
+          source: 'cameras',
+          layout: {
+            'icon-image': 'camera-icon',
+            'icon-size': 0.5,
+            'icon-allow-overlap': true
+          }
+        });
+
+        // Popup on camera click
+        map.on('click', 'camera-points', (e) => {
+          const feature = e.features[0];
+          const props = feature.properties;
+          let html = `<h3>${props.Name || "Camera"}</h3>`;
+          if (props.PhotoUrlThumbnail) {
+            html += `<img src="${props.PhotoUrlThumbnail}" style="max-width:200px;display:block;margin-bottom:8px;">`;
+          }
+          html += `<div><strong>Status:</strong> ${props.Status || "Unknown"}</div>`;
+          html += `<div><strong>Type:</strong> ${props.Type || ""}</div>`;
+          html += `<div><a href="${props.PhotoUrlFullsize || props.PhotoUrl}" target="_blank">Fullsize Image</a></div>`;
+          new maplibregl.Popup({ maxWidth: '250px' })
+            .setLngLat(feature.geometry.coordinates)
+            .setHTML(html)
+            .addTo(map);
+        });
+
+        map.on('mouseenter', 'camera-points', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'camera-points', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      })();
+    });
+
+    // Store all trains by OperationalTrainNumber
+    const trainMap = new Map();
+
+    // SSE for TrainPosition
+    const esPosition = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=8a452d0f-340d-47c4-9bba-4bf7dee4fc1d");
+    // SSE for TrainAnnouncement
+    const esAnnouncement = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=2d1bec67-5fe4-4051-a11f-839a884a2ea1");
+
+    // Handle TrainPosition updates
+    esPosition.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const now = Date.now();
+
+        payload.RESPONSE.RESULT[0].TrainPosition.forEach(tp => {
+          const opNum = tp.Train?.OperationalTrainNumber;
+          if (!opNum) return;
+          // If train already exists, update position and timestamp, keep verification and announcement
+          if (trainMap.has(opNum)) {
+            const existing = trainMap.get(opNum);
+            trainMap.set(opNum, {
+              ...existing,
+              tp,
+              lastPositionTime: new Date(tp.TimeStamp).getTime()
+            });
+          } else {
+            trainMap.set(opNum, {
+              tp,
+              verified: false,
+              announcement: null,
+              lastAnnouncementTime: null,
+              lastPositionTime: new Date(tp.TimeStamp).getTime()
+            });
+          }
+        });
+
+        cleanupAndUpdate();
+      } catch (err) {
+        console.error("Bad data:", event.data, err);
+      }
+    };
+
+    // Handle TrainAnnouncement updates
+    esAnnouncement.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const now = Date.now();
+        const announcements = payload.RESPONSE.RESULT[0].TrainAnnouncement || [];
+
+        announcements.forEach(ta => {
+          const opNum = ta.OperationalTrainNumber;
+          if (!opNum) return;
+          if (trainMap.has(opNum)) {
+            // Mark as verified and attach announcement
+            const existing = trainMap.get(opNum);
+            trainMap.set(opNum, {
+              ...existing,
+              verified: true,
+              announcement: ta,
+              lastAnnouncementTime: now
+            });
+          } else {
+            // If position hasn't arrived yet, create a placeholder (not shown until position arrives)
+            trainMap.set(opNum, {
+              tp: null,
+              verified: true,
+              announcement: ta,
+              lastAnnouncementTime: now,
+              lastPositionTime: null
+            });
+          }
+        });
+
+        cleanupAndUpdate();
+      } catch (err) {
+        console.error("Bad announcement data:", event.data, err);
+      }
+    };
+
+    // Remove trains not verified in last 3 minutes and update map
+    function cleanupAndUpdate() {
+      const now = Date.now();
+      for (const [opNum, train] of trainMap.entries()) {
+        // Remove if last announcement is older than 3 minutes
+        if (train.verified && train.lastAnnouncementTime && (now - train.lastAnnouncementTime > 3 * 60 * 1000)) {
+          trainMap.delete(opNum);
+          continue;
+        }
+        // Remove if last position is older than 3 minutes
+        if (train.lastPositionTime && (now - train.lastPositionTime > 3 * 60 * 1000)) {
+          trainMap.delete(opNum);
+          continue;
+        }
+      }
+      updateMap();
+    }
+
+    // Load stations.json and build a lookup map
+    let stationNameMap = {};
+    fetch('./stations.json')
+      .then(res => res.json())
+      .then(stations => {
+        // Build a map: LocationSignature => AdvertisedLocationName
+        stationNameMap = Object.fromEntries(
+          stations.TrainStation.map(st => [st.LocationSignature, st.AdvertisedLocationName])
+        );
+        // Optionally, trigger updateMap() if you want to refresh after stations load
+        updateMap();
+      });
+
+    // Only display trains that are verified and have position
+    function updateMap() {
+      const features = Array.from(trainMap.values())
+        .filter(train => train.verified && train.tp && train.announcement)
+        .map(train => {
+          const tp = train.tp;
+          const ta = train.announcement;
+          const match = tp.Position.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
+          const lon = match ? parseFloat(match[1]) : null;
+          const lat = match ? parseFloat(match[2]) : null;
+          var color = "#FFFFFF";
+          const desc = (ta.ProductInformation && ta.ProductInformation.length > 0 && ta.ProductInformation[0].Description) ? ta.ProductInformation[0].Description : "Train";
+          switch (desc) {
+            case "Pågatågen":
+              color = "#716cb8";
+              break;
+            case "Öresundståg":
+              color = "#706c6a";
+              break;
+            case "SJ Snabbtåg":
+              color = "#277f46";
+          }
+
+          // Helper to get advertised name
+          function getAdvertisedName(sig) {
+            return stationNameMap[sig] || sig;
+          }
+
+          // Build route string with advertised names
+          let route = "N/a";
+          if (ta.ViaToLocation && ta.ViaToLocation.length > 0) {
+            route = ta.ViaToLocation.map(v => getAdvertisedName(v.LocationName)).join(" → ");
+          } else if (ta.ToLocation && ta.ToLocation.length > 0) {
+            route = getAdvertisedName(ta.ToLocation[0].LocationName);
+          }
+
+          const props = {
+            ...tp,
+            ...ta,
+            id: tp.Train?.OperationalTrainNumber || null,
+            advertisedTrainNumber: tp.Train?.AdvertisedTrainNumber || null,
+            speed: (tp.Speed !== undefined && tp.Speed !== null) ? tp.Speed + "km/h" : "N/a",
+            bearing: tp.Bearing,
+            timeStamp: tp.TimeStamp,
+            active: tp.Status?.Active,
+            desc: desc,
+            color: color,
+            route: route
+          };
+          return {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [lon, lat]
+            },
+            properties: props
+          };
+        });
+
+      const geojson = { type:'FeatureCollection', features };
+      const src = map.getSource('trains');
+      if (src) src.setData(geojson);
+    }
+  </script>
+</body>
+</html>
