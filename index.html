@@ -33,7 +33,6 @@
 
     // Source + layer for train positions
     map.on('load', () => {
-      // Train source and layers
       map.addSource('trains', {
         type: 'geojson',
         data: { type:'FeatureCollection', features: [] }
@@ -51,44 +50,71 @@
         }
       });
 
-      // Arrow icon and layer
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><polygon points="32,0 64,56 32,30 0,56" fill="white"/></svg>`;
-      const img = new Image();
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-      img.onload = () => {
-        map.addImage('train-arrow', img, { sdf: false });
-        map.addLayer({
-          id: 'train-arrows',
-          type: 'symbol',
-          source: 'trains',
-          layout: {
-            'icon-image': 'train-arrow',
-            'icon-size': 0.2,
-            'icon-rotate': ['get', 'bearing'],
-            'icon-rotation-alignment': 'map',
-            'icon-allow-overlap': true,
-            'icon-offset': [0, -25]
-          },
-          paint: {
-            'icon-opacity': 1
-          }
-        });
-      };
+      // Add popup on train click
+      map.on('click', 'train-points', (e) => {
+        const feature = e.features[0];
+        const props = feature.properties;
+        // Format all properties as a table, skipping very long values
+        let html = `<h3>${props.desc} ${props.OperationalTrainNumber}</h3>
+        <table style="max-width:350px;word-break:break-word;font-size:13px">
+        <tr><td style="vertical-align:top;"><strong>Route</strong></td><td style="vertical-align:top;">${props.route}</td></tr>
+        <tr><td style="vertical-align:top;"><strong>Speed</strong></td><td style="vertical-align:top;">${props.speed}</td></tr>
+        </table>`;
 
-      // Camera source and layer
-      map.addSource('cameras', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
+        new maplibregl.Popup({ maxWidth: '400px' })
+          .setLngLat(feature.geometry.coordinates)
+          .setHTML(html)
+          .addTo(map);
       });
 
-      // Add camera icon
-      (async function addCameraIcon() {
-        const response = await fetch('https://api.trafikinfo.trafikverket.se/v2/icons/data/road.infrastructure.icon/trafficCamera');
-        const blob = await response.blob();
+      // Change cursor to pointer when hovering train points
+      map.on('mouseenter', 'train-points', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'train-points', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
+      // Add an arrow icon as a data URI (SVG)
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><polygon points="32,0 64,56 32,30 0,56" fill="white"/></svg>`;
         const img = new Image();
-        img.src = URL.createObjectURL(blob);
-        await img.decode();
-        map.addImage('camera-icon', img, { sdf: false });
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        img.onload = () => {
+            map.addImage('train-arrow', img, { sdf: false });
+            map.addLayer({
+                id: 'train-arrows',
+                type: 'symbol',
+                source: 'trains',
+                layout: {
+                'icon-image': 'train-arrow',
+                'icon-size': 0.2, // Make arrow smaller than the circle
+                'icon-rotate': ['get', 'bearing'],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-offset': [0, -25] // Move arrow tip to the edge of the circle
+                },
+                paint: {
+                'icon-opacity': 1
+                }
+            });
+        };
+
+        // Add camera icon to the map (PNG from Trafikverket)
+        async function addCameraIcon() {
+          const response = await fetch('./trafficCamera.png');
+          const blob = await response.blob();
+          const img = new Image();
+          img.src = URL.createObjectURL(blob);
+          await img.decode();
+          map.addImage('camera-icon', img, { sdf: false });
+        }
+        addCameraIcon();
+
+        // Camera data SSE and map
+        map.addSource('cameras', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
 
         map.addLayer({
           id: 'camera-points',
@@ -96,12 +122,12 @@
           source: 'cameras',
           layout: {
             'icon-image': 'camera-icon',
-            'icon-size': 0.5,
+            'icon-size': 0.2,
             'icon-allow-overlap': true
           }
         });
 
-        // Popup on camera click
+        // Optional: popup on camera click
         map.on('click', 'camera-points', (e) => {
           const feature = e.features[0];
           const props = feature.properties;
@@ -109,7 +135,8 @@
           if (props.PhotoUrlThumbnail) {
             html += `<img src="${props.PhotoUrlThumbnail}" style="max-width:200px;display:block;margin-bottom:8px;">`;
           }
-          html += `<div><strong>Status:</strong> ${props.Status || "Unknown"}</div>`;
+          const time = get_time_diff(props.PhotoTime);
+          html += `<div><strong>Time:</strong> ${time || "Unknown"}</div>`;
           html += `<div><strong>Type:</strong> ${props.Type || ""}</div>`;
           html += `<div><a href="${props.PhotoUrlFullsize || props.PhotoUrl}" target="_blank">Fullsize Image</a></div>`;
           new maplibregl.Popup({ maxWidth: '250px' })
@@ -124,8 +151,64 @@
         map.on('mouseleave', 'camera-points', () => {
           map.getCanvas().style.cursor = '';
         });
-      })();
+
+      // Update camera source
     });
+    function get_time_diff( datetime )
+    {
+        if (!datetime) return "N/a";
+
+        var datetime = new Date( datetime ).getTime();
+        var now = new Date().getTime();
+
+        if( isNaN(datetime) )
+        {
+            return "";
+        }
+
+        console.log( datetime + " " + now);
+
+        if (datetime < now) {
+            var milisec_diff = now - datetime;
+        }else{
+            var milisec_diff = datetime - now;
+        }
+
+        var days = Math.floor(milisec_diff / 1000 / 60 / (60 * 24));
+
+        var date_diff = new Date( milisec_diff );
+
+        return days + " Days "+ date_diff.getHours() + " Hours " + date_diff.getMinutes() + " Minutes " + date_diff.getSeconds() + " Seconds";
+    }
+    function updateCameraLayer() {
+        const features = Array.from(cameraMap.values());
+        const geojson = { type: 'FeatureCollection', features };
+        const src = map.getSource('cameras');
+        if (src)src.setData(geojson);
+    }
+    const cameraMap = new Map();
+        const esCamera = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=8d02610c-7e8c-433e-aa1c-22a906cf150c");
+
+        esCamera.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            const cameras = payload.RESPONSE.RESULT[0].Camera || [];
+            cameras.forEach(cam => {
+              if (!cam.Geometry || !cam.Geometry.WGS84) return;
+              const match = cam.Geometry.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
+              const lon = match ? parseFloat(match[1]) : null;
+              const lat = match ? parseFloat(match[2]) : null;
+              cameraMap.set(cam.Id, {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [lon, lat] },
+                properties: { ...cam }
+              });
+            });
+            updateCameraLayer();
+          } catch (err) {
+            console.error("Camera SSE error:", err);
+          }
+        };
 
     // Store all trains by OperationalTrainNumber
     const trainMap = new Map();
