@@ -15,11 +15,11 @@
     "openmaptiles": {
       "type": "vector",
       "scheme": "xyz",
-      "url": "https://tiles-eu.stadiamaps.com/data/openmaptiles.json"
+      "url": "https://tiles-eu.stadiamaps.com/data/openmaptiles.json&api_key=dc04494f-4491-4111-9f39-a88547dc62c8"
     }
   },
-  "sprite": "https://tiles-eu.stadiamaps.com/styles/alidade-smooth-dark/sprite",
-  "glyphs": "https://tiles-eu.stadiamaps.com/fonts/{fontstack}/{range}.pbf",
+  "sprite": "https://tiles-eu.stadiamaps.com/styles/alidade-smooth-dark/sprite&api_key=dc04494f-4491-4111-9f39-a88547dc62c8Y",
+  "glyphs": "https://tiles-eu.stadiamaps.com/fonts/{fontstack}/{range}.pbf&api_key=dc04494f-4491-4111-9f39-a88547dc62c8",
   "layers": [
     {
       "id": "background",
