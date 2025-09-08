@@ -168,7 +168,7 @@
         }
       }
       console.log(props);
-      let html = `<h3>${props.desc} ${props.id || ""} (${props.advertisedTrainNumber || ""})</h3>`;
+      let html = `<h3>${props.desc} ${props.id || ""}</h3>`;
       html += `<div><strong>Speed:</strong> ${props.speed || "N/a"}</div>`;
       html += `<div><strong>Last Update:</strong> ${new Date(props.timeStamp).toLocaleTimeString() || "N/a"}</div>`;
       html += `<div><strong>Status:</strong> ${props.active ? "Active" : "Inactive"}</div>`;
