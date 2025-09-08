@@ -3,26 +3,152 @@
 <head>
   <meta charset="UTF-8">
   <title>Train Positions – Lund</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
   <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
   <style>
 
-    body, html { margin:0; padding:0; height:100%;background-color: rgb(26, 26, 26); }
-    #map { width:100%; height:100%; }
+  body, html { margin:0; padding:0; height:100%;background-color: rgb(26, 26, 26); }
+  #map { width:100%; height:100%; }
 
-    .maplibregl-popup-content {
-      overflow-x: auto;
-      font-size: 13px;
+  .maplibregl-popup-content {
+    overflow-x: auto;
+    text-shadow: 0 0 3px black;
+    color:white;
+    font-size: 13px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border: solid 1px rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(3px);
+  }
+  .stations {
+    margin-top: 8px;
+    font-size: 10px;
+  }
+  .header {
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 4px;
+    cursor: pointer;
+    user-select: none;}
+  .maplibregl-popup-tip {
+    opacity: 0.4;
+    backdrop-filter:blur(3px)
+  }
+  .maplibregl-ctrl-bottom-right {
+    display: none; /* Hide the MapLibre logo */
+  }
+  .fastest {
+    background-color: rgba(100, 100, 100, 0.2);
+    color: lightslategray;
+    padding: 5px 10px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-size: x-small;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+ #messages {
+    position: absolute;
+    top: 10px;
+    left: -360px; /* hidden by default */
+    width: 350px;
+    max-height: 90%;
+    overflow-y: auto;
+    background: transparent;
+    padding: 10px;
+    border-radius: 8px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: #212529;
+    transition: all 1s ease,left 1s ease;
+    z-index: 999;
+    overflow:hidden;
+    scrollbar-width:none;
+  } h2 {
+    position: relative;
+    margin-top: 0;
+    font-size: 18px;
+    text-align: center;
+    color:white;
     }
-    .maplibregl-ctrl-bottom-right {
-      display: none; /* Hide the MapLibre logo */
-    }
-  </style>
-</head>
+  #messages.open {
+    left: 30px;
+    overflow:auto;
+  }
+  #messages-handle {
+    position:fixed;
+    left: 0px;
+    top: 10px;
+    width: 20px;
+    height: 100px;
+    z-index: 1000;
+    background: #ffffff;
+    display: flex;
+    color: black; 
+    align-items: center;
+    justify-content: center;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    cursor: pointer;
+    border-radius: 0 8px 8px 0;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+    font-size: 14px;
+    user-select: none;
+  }
+
+  /* List style */
+  #messageList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow: hidden ;
+  }
+  .message-card {
+    background: whitesmoke;
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: white 0px 0px 10px -3px;
+  }
+  .message-card .header {
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 4px;
+  }
+  .message-card .time {
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+  .message-card .text {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+</style>
+
 <body>
   <div id="map"></div>
+  <span class="fastest"></span>
+
+  <div id="messages">
+    <div id="messages-handle">Messages</div>
+    <h2>Traffic Announcements</h2>
+    <ul id="messageList"></ul>
+  </div>
+
   <script>
-    // Center on Lund, Sweden
+    const panel = document.getElementById('messages');
+    const handle = document.getElementById('messages-handle');
+     const list = document.getElementById('messageList');
+
+    handle.addEventListener('click', () => {
+      panel.classList.toggle('open');
+    });
+    // Center on Lund, Sweden 
     const map = new maplibregl.Map({
       container: 'map',
       style: './alidade_smooth.json', // Replace with your style URL or JSON
@@ -30,6 +156,42 @@
       projection: {"type": "globe"},
       zoom: 11
     });
+    function trainclick(feature) {
+      const props = feature.properties;
+      if (typeof props.ta == "string"|| typeof props.tp == "string") {
+        try {
+          props.ta = JSON.parse(props.ta);
+          props.tp = JSON.parse(props.tp);
+        } catch (e) {
+          console.error("Failed to parse train data", e);
+          return;
+        }
+      }
+      console.log(props);
+      let html = `<h3>${props.desc} ${props.id || ""} (${props.advertisedTrainNumber || ""})</h3>`;
+      html += `<div><strong>Speed:</strong> ${props.speed || "N/a"}</div>`;
+      html += `<div><strong>Last Update:</strong> ${new Date(props.timeStamp).toLocaleTimeString() || "N/a"}</div>`;
+      html += `<div><strong>Status:</strong> ${props.active ? "Active" : "Inactive"}</div>`;
+      html += `<div><strong>Route:</strong> ${props.route || "N/a"}</div>`;
+      if (props.ta.ProductInformation && props.ta.ProductInformation.length > 0) {
+        const pi = props.ta.ProductInformation[0];
+        html += `<div><strong>Operator:</strong> ${props.ta.Operator || "N/a"}</div>`;
+        if (pi.OperatingDays) {
+          html += `<div><strong>Operating Days:</strong> ${pi.OperatingDays.replace(/1/g, '●').replace(/0/g, '○') || "N/a"}</div>`;
+        }
+      }
+      if (props.ta.Deviations && props.ta.Deviations.length > 0) {
+        html += `<h4>Deviations:</h4><ul>`;
+        props.ta.Deviations.forEach(dev => {
+          html += `<li>${dev.Text}</li>`;
+        });
+        html += `</ul>`;
+      }
+      new maplibregl.Popup({ maxWidth: '300px' })
+        .setLngLat(feature.geometry.coordinates)
+        .setHTML(html)
+        .addTo(map);
+    }
 
     // Source + layer for train positions
     map.on('load', () => {
@@ -52,19 +214,7 @@
 
       // Add popup on train click
       map.on('click', 'train-points', (e) => {
-        const feature = e.features[0];
-        const props = feature.properties;
-        // Format all properties as a table, skipping very long values
-        let html = `<h3>${props.desc} ${props.OperationalTrainNumber}</h3>
-        <table style="max-width:350px;word-break:break-word;font-size:13px">
-        <tr><td style="vertical-align:top;"><strong>Route</strong></td><td style="vertical-align:top;">${props.route}</td></tr>
-        <tr><td style="vertical-align:top;"><strong>Speed</strong></td><td style="vertical-align:top;">${props.speed}</td></tr>
-        </table>`;
-
-        new maplibregl.Popup({ maxWidth: '400px' })
-          .setLngLat(feature.geometry.coordinates)
-          .setHTML(html)
-          .addTo(map);
+        trainclick(e.features[0]);
       });
 
       // Change cursor to pointer when hovering train points
@@ -116,16 +266,50 @@
           data: { type: 'FeatureCollection', features: [] }
         });
 
+        map.addSource('weather', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+
+        loadMessages();
         map.addLayer({
           id: 'camera-points',
           type: 'symbol',
           source: 'cameras',
           layout: {
             'icon-image': 'camera-icon',
-            'icon-size': 0.2,
+            'icon-size': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                0, 0.02,    // radius at zoom level 0
+                18, 0.4,   // radius at zoom level 12
+                20, 1   // radius at zoom level 20
+                ],
             'icon-allow-overlap': true
           }
         });
+
+        map.addLayer({
+          id: 'weather-points',
+          type: 'circle',
+          source: 'weather',
+          paint: {
+            'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                0, 0.2,    // radius at zoom level 0
+                12, 6,   // radius at zoom level 12
+                20, 12   // radius at zoom level 20
+                ],
+            'circle-color': '#00aaff',
+            'circle-pitch-scale': 'map',
+            'circle-pitch-alignment': 'map',
+            'circle-opacity': 0.4
+          }
+        });
+
 
         // Optional: popup on camera click
         map.on('click', 'camera-points', (e) => {
@@ -145,15 +329,80 @@
             .addTo(map);
         });
 
+        map.on('click', 'weather-points', (e) => {
+          const feature = e.features[0];
+          const props = feature.properties;
+          props.Observation = JSON.parse(props.Observation);
+          const wind = props.Observation.Wind[0];
+          const aggPrecip = props.Observation.Aggregated5minutes.Precipitation;
+          let html = `
+            <strong>Air Temp:</strong> ${props.Observation.Air.Temperature.Value}°C<br>
+            <strong>Dew Point:</strong> ${props.Observation.Air.Dewpoint.Value}°C<br>
+            <strong>Humidity:</strong> ${props.Observation.Air.RelativeHumidity.Value}%<br>
+            <strong>Wind:</strong> ${wind.Speed.Value} m/s at ${wind.Direction.Value}°<br>
+            <strong>Precipitation Type:</strong> ${props.Observation.Weather.Precipitation}<br>
+            <strong>Rain (last 5 min):</strong> ${aggPrecip.Rain ? 'Yes' : 'No'} (${aggPrecip.RainSum.Value} mm)<br>
+            <strong>Snow (last 5 min):</strong> ${aggPrecip.Snow ? 'Yes' : 'No'} (Solid: ${aggPrecip.SnowSum.Solid.Value} mm, Water Eq: ${aggPrecip.SnowSum.WaterEquivalent.Value} mm)<br>
+            <strong>Visibility:</strong> ${props.Observation.Air.VisibleDistance.Value / 1000} km<br>
+            <strong>Last Updated:</strong> ${new Date(props.Observation.Sample).toLocaleTimeString()}
+            `;
+          new maplibregl.Popup({ maxWidth: '250px' })
+            .setLngLat(feature.geometry.coordinates)
+            .setHTML(html)
+            .addTo(map);
+        });
+
         map.on('mouseenter', 'camera-points', () => {
           map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mouseleave', 'camera-points', () => {
           map.getCanvas().style.cursor = '';
         });
+        map.on('mouseenter', 'weather-points', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'weather-points', () => {
+          map.getCanvas().style.cursor = '';
+        });
+        
 
       // Update camera source
     });
+    var trainlist = [];
+    function getFastestTrain()
+    {
+      if (trainlist.length == 0) return "N/a";
+      var fastest = trainlist[0];
+      trainlist.forEach(t => {
+        if (t.properties.speed && t.properties.speed != "N/a") {
+          const speed = parseInt(t.properties.speed);
+          const fastestSpeed = parseInt(fastest.properties.speed);
+          if (speed > fastestSpeed) {
+            fastest = t;
+          }
+        }
+      });
+      document.querySelector(".fastest").innerHTML = `${fastest.properties.speed}`;
+    }
+    function fastestTrain()
+    {
+      if (trainlist.length == 0) return "N/a";
+      var fastest = trainlist[0];
+      trainlist.forEach(t => {
+        if (t.properties.speed && t.properties.speed != "N/a") {
+          const speed = parseInt(t.properties.speed);
+          const fastestSpeed = parseInt(fastest.properties.speed);
+          if (speed > fastestSpeed) {
+            fastest = t;
+          }
+        }
+      });
+      console.log(`${fastest.properties.desc} ${fastest.properties.id} at ${fastest.properties.speed}`);
+      map.flyTo({center: fastest.geometry.coordinates, zoom: 14});
+      console.log(fastest)
+      trainclick(fastest);
+    }
+    document.getElementsByClassName("fastest")[0].addEventListener("click", fastestTrain);
     function get_time_diff( datetime )
     {
         if (!datetime) return "N/a";
@@ -186,29 +435,59 @@
         const src = map.getSource('cameras');
         if (src)src.setData(geojson);
     }
-    const cameraMap = new Map();
-        const esCamera = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=8d02610c-7e8c-433e-aa1c-22a906cf150c");
+    function updateWeatherLayer() {
+        const features = Array.from(weatherMap.values());
+        const geojson = { type: 'FeatureCollection', features };
+        const src = map.getSource('weather');
+        if (src) src.setData(geojson);
+    }
 
-        esCamera.onmessage = (event) => {
-          try {
-            const payload = JSON.parse(event.data);
-            const cameras = payload.RESPONSE.RESULT[0].Camera || [];
-            cameras.forEach(cam => {
-              if (!cam.Geometry || !cam.Geometry.WGS84) return;
-              const match = cam.Geometry.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
-              const lon = match ? parseFloat(match[1]) : null;
-              const lat = match ? parseFloat(match[2]) : null;
-              cameraMap.set(cam.Id, {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [lon, lat] },
-                properties: { ...cam }
-              });
+    const weatherMap = new Map();
+    esWeather = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=ecbf8577-5aec-4e44-938d-e0fd05ae9be8")
+
+    esWeather.onmessage = (event) => {
+        try {
+        const payload = JSON.parse(event.data);
+        const weathers = payload.RESPONSE.RESULT[0].WeatherMeasurepoint || [];
+        weathers.forEach(w => {
+            if (!w.Geometry || !w.Geometry.WGS84) return;
+            const match = w.Geometry.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
+            const lon = match ? parseFloat(match[1]) : null;
+            const lat = match ? parseFloat(match[2]) : null;
+            weatherMap.set(w.Id, {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [lon, lat] },
+            properties: { ...w }
             });
-            updateCameraLayer();
-          } catch (err) {
-            console.error("Camera SSE error:", err);
-          }
-        };
+        });
+        updateWeatherLayer();
+        } catch (err) {
+        console.error("Weather SSE error:", err);
+        }
+    };
+    const cameraMap = new Map();
+    const esCamera = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=2574045a-35ac-4895-9497-897f199a0e86");
+
+    esCamera.onmessage = (event) => {
+    try {
+        const payload = JSON.parse(event.data);
+        const cameras = payload.RESPONSE.RESULT[0].Camera || [];
+        cameras.forEach(cam => {
+        if (!cam.Geometry || !cam.Geometry.WGS84) return;
+        const match = cam.Geometry.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
+        const lon = match ? parseFloat(match[1]) : null;
+        const lat = match ? parseFloat(match[2]) : null;
+        cameraMap.set(cam.Id, {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [lon, lat] },
+            properties: { ...cam }
+        });
+        });
+        updateCameraLayer();
+    } catch (err) {
+        console.error("Camera SSE error:", err);
+    }
+    };
 
     // Store all trains by OperationalTrainNumber
     const trainMap = new Map();
@@ -216,7 +495,7 @@
     // SSE for TrainPosition
     const esPosition = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=8a452d0f-340d-47c4-9bba-4bf7dee4fc1d");
     // SSE for TrainAnnouncement
-    const esAnnouncement = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=2d1bec67-5fe4-4051-a11f-839a884a2ea1");
+    const esAnnouncement = new EventSource("https://api.trafikinfo.trafikverket.se/v2/data.json?ssereqid=41712111-202e-4a89-8c19-42227dd73344");
 
     // Handle TrainPosition updates
     esPosition.onmessage = (event) => {
@@ -289,7 +568,7 @@
       }
     };
 
-    // Remove trains not verified in last 3 minutes and update map
+    // Remove trains not verified in last 10 minutes and update map
     function cleanupAndUpdate() {
       const now = Date.now();
       for (const [opNum, train] of trainMap.entries()) {
@@ -298,8 +577,8 @@
           trainMap.delete(opNum);
           continue;
         }
-        // Remove if last position is older than 3 minutes
-        if (train.lastPositionTime && (now - train.lastPositionTime > 3 * 60 * 1000)) {
+        // Remove if last position is older than 10 minutes
+        if (train.lastPositionTime && (now - train.lastPositionTime > 10 * 60 * 1000)) {
           trainMap.delete(opNum);
           continue;
         }
@@ -336,11 +615,17 @@
             case "Pågatågen":
               color = "#716cb8";
               break;
+            case "Pågatågen Exp":
+              color = "#4F4B80";
+              break;
             case "Öresundståg":
               color = "#706c6a";
               break;
             case "SJ Snabbtåg":
               color = "#277f46";
+              break;
+            case "Snälltåget":
+              color = "#f9423a";
           }
 
           // Helper to get advertised name
@@ -355,10 +640,9 @@
           } else if (ta.ToLocation && ta.ToLocation.length > 0) {
             route = getAdvertisedName(ta.ToLocation[0].LocationName);
           }
-
           const props = {
-            ...tp,
-            ...ta,
+            tp,
+            ta,
             id: tp.Train?.OperationalTrainNumber || null,
             advertisedTrainNumber: tp.Train?.AdvertisedTrainNumber || null,
             speed: (tp.Speed !== undefined && tp.Speed !== null) ? tp.Speed + "km/h" : "N/a",
@@ -378,10 +662,76 @@
             properties: props
           };
         });
-
+      trainlist = features
+      getFastestTrain();
       const geojson = { type:'FeatureCollection', features };
       const src = map.getSource('trains');
       if (src) src.setData(geojson);
+    }
+    async function loadMessages() {
+      // Example POST body (adapt to your Trafikverket query)
+      const body = `
+      <REQUEST>
+        <LOGIN authenticationkey="915b87d2299a487285f481a9cd5d6d39"/>
+        <QUERY objecttype="TrainMessage" schemaversion="1.7" limit="-1">
+          <FILTER>
+          <AND>
+            <GT name="PrognosticatedEndDateTimeTrafficImpact" value="$now" />
+            <LT name="StartDateTime" value="$now" />
+            <EQ name="CountyNo" value="12" />
+          </AND>
+          </FILTER>
+        </QUERY>
+      </REQUEST>`;
+
+      try {
+        const res = await fetch("https://api.trafikinfo.trafikverket.se/v2/data.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/xml" },
+          body
+        });
+        MessageMap = new Map();
+
+        const data = await res.json();
+
+        const messages = data.RESPONSE.RESULT[0].TrainMessage || [];
+        list.innerHTML = "";
+        
+        messages.forEach(msg => {
+          const li = document.createElement("li");
+          li.className = "message-card";
+          li.id = `msg-${msg.EventId}`;
+          li.innerHTML = `
+            <div class="header">${msg.Header}</div>
+            <div class="time">${msg.LastUpdateDateTime}</div>
+            <div class="text">${msg.ExternalDescription || "No description"}</div>  
+            <div class="stations"><strong>Affected Stations:</strong> ${msg.TrafficImpact ? msg.TrafficImpact.map(loc => {
+              if (loc.ToLocation && loc.FromLocation) return [stationNameMap[loc.FromLocation[0]],stationNameMap[loc.ToLocation[0]]].join(" → ");
+              if (loc.ToLocation) return stationNameMap[loc.ToLocation[0]];
+              if (loc.FromLocation) return stationNameMap[loc.FromLocation[0]];
+            }).join(", ") : "N/a"}</div>
+          `;
+          list.appendChild(li);
+          MessageMap.set(msg.EventId, msg);
+          const head=li.getElementsByClassName("header")[0]
+          head.addEventListener("click", () => {
+            const msg = MessageMap.get(head.parentElement.id.replace("msg-",""));
+            if (msg.Geometry || msg.Geometry.WGS84){
+              const match = msg.Geometry.WGS84.match(/POINT \(([-\d.]+) ([-\d.]+)\)/);
+              const lon = match ? parseFloat(match[1]) : null;
+              const lat = match ? parseFloat(match[2]) : null;
+              new maplibregl.Popup({ maxHeight:'30px' })
+                .setLngLat([lon,lat])
+                .setHTML(`<div><strong>${msg.Header || "Message"}</strong></div>`)
+                .addTo(map);
+              map.flyTo({center: [lon,lat], zoom: 11});
+            };
+          });
+        });
+
+      } catch (err) {
+        console.error("Error loading messages", err);
+      }
     }
   </script>
 </body>

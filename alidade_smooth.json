@@ -16,15 +16,33 @@
       "type": "vector",
       "scheme": "xyz",
       "url": "https://tiles-eu.stadiamaps.com/data/openmaptiles.json"
+    },
+    "terrainSource": {
+      "type": "raster-dem",
+      "tiles": ["https://tiles.stadiamaps.com/data/terrarium/{z}/{x}/{y}.png"],
+      "tileSize": 256,
+      "maxzoom": 12,
+      "minzoom": 10,
+      "encoding": "terrarium"
     }
   },
   "sprite": "https://tiles-eu.stadiamaps.com/styles/alidade-smooth-dark/sprite",
   "glyphs": "https://tiles-eu.stadiamaps.com/fonts/{fontstack}/{range}.pbf?api_key=dc04494f-4491-4111-9f39-a88547dc62c8",
+  "terrain": {
+    "source": "terrainSource",
+    "exaggeration": 1
+  },
   "layers": [
     {
       "id": "background",
       "type": "background",
       "paint": {"background-color": "hsl(0, 0%, 20%)"}
+    },
+    {
+    "id": "hills",
+   "type": "hillshade",
+    "source": "terrainSource",
+    "layout": {"visibility": "none"}
     },
     {
       "id": "park_fill",
@@ -1463,5 +1481,6 @@
       }
     }
   ],
+  
   "id": "v301t3j"
 }
