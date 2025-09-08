@@ -696,14 +696,15 @@
 
         const messages = data.RESPONSE.RESULT[0].TrainMessage || [];
         list.innerHTML = "";
-        
+        messages.sort((a,b) => new Date(b.StartDateTime) - new Date(a.StartDateTime));
+        console.log(messages);
         messages.forEach(msg => {
           const li = document.createElement("li");
           li.className = "message-card";
           li.id = `msg-${msg.EventId}`;
           li.innerHTML = `
             <div class="header">${msg.Header}</div>
-            <div class="time">${msg.LastUpdateDateTime}</div>
+            <div class="time"><b>Starts: </b>${new Date(msg.StartDateTime).toLocaleDateString('en-GB', {day: '2-digit',month: '2-digit',year: 'numeric'})} <b>Ends:</b> ${new Date(msg.PrognosticatedEndDateTimeTrafficImpact).toLocaleDateString('en-GB', {day: '2-digit',month: '2-digit',year: 'numeric'})}</div>
             <div class="text">${msg.ExternalDescription || "No description"}</div>  
             <div class="stations"><strong>Affected Stations:</strong> ${msg.TrafficImpact ? msg.TrafficImpact.map(loc => {
               if (loc.ToLocation && loc.FromLocation) return [stationNameMap[loc.FromLocation[0]],stationNameMap[loc.ToLocation[0]]].join(" → ");
